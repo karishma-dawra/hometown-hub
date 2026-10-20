@@ -1,6 +1,7 @@
 
 import { useState, useEffect } from "react";
 import "./App.css";
+import Auth from "./Auth";
 
 const communities = [
   { name: "Bikaner Community", location: "Bikaner, Rajasthan", members: 1240, icon: "🏜️", color: "#FFF0D9" },
@@ -19,7 +20,27 @@ function App() {
   const [liked, setLiked] = useState([]);
   const [postText, setPostText] = useState("");
   const [showComposer, setShowComposer] = useState(false);
+  const [session, setSession] = useState(() => {
+  try {
+    const saved = sessionStorage.getItem("hometown-session");
+    return saved ? JSON.parse(saved) : null;
+  } catch {
+    return null;
+  }
+});
+useEffect(() => {
+  if (session) {
+    sessionStorage.setItem(
+      "hometown-session",
+      JSON.stringify(session)
+    );
+  } else {
+    sessionStorage.removeItem("hometown-session");
+  }
+}, [session]);
   useEffect(() => {
+  if (!session) return;
+
   fetch("http://localhost:5050/api/posts")
     .then((response) => {
       if (!response.ok) {
@@ -28,12 +49,25 @@ function App() {
       return response.json();
     })
     .then((data) => {
-      setPosts(data);
+      setPosts(
+        data.map((post) => ({
+          ...post,
+          id: post.id,
+          text: post.content,
+          initials: (post.author || "CM")
+            .slice(0, 2)
+            .toUpperCase(),
+          location: "Your community",
+          time: new Date(post.createdAt).toLocaleString(),
+          comments: 0,
+          color: "#E6E0FF",
+        }))
+      );
     })
     .catch((error) => {
       console.error("Error loading posts:", error);
     });
-}, []);
+}, [session]);
 
   
 async function addPost() {
@@ -82,16 +116,22 @@ async function addPost() {
 }
 
   async function toggleLike(id) {
-  if (liked.includes(id)) return;
+  const isLiked = liked.includes(id);
 
   try {
     const response = await fetch(
       `http://localhost:5050/api/posts/${id}/like`,
-      { method: "PATCH" }
+      {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ liked: !isLiked }),
+      }
     );
 
     if (!response.ok) {
-      throw new Error("Failed to save like");
+      throw new Error("Failed to update like");
     }
 
     const data = await response.json();
@@ -102,10 +142,14 @@ async function addPost() {
       )
     );
 
-    setLiked((currentLiked) => [...currentLiked, id]);
+    setLiked((currentLiked) =>
+      isLiked
+        ? currentLiked.filter((postId) => postId !== id)
+        : [...currentLiked, id]
+    );
   } catch (error) {
-    console.error("Error liking post:", error);
-    alert("Could not save your like. Please try again.");
+    console.error("Error updating like:", error);
+    alert("Could not update your like. Please try again.");
   }
 }
 
@@ -113,7 +157,9 @@ async function addPost() {
     { title: "MENU", items: [{ icon: "⌂", label: "Home" }, { icon: "◉", label: "Communities" }, { icon: "▦", label: "Events" }, { icon: "♧", label: "Notifications" }] },
     { title: "PERSONAL", items: [{ icon: "◎", label: "My Profile" }, { icon: "⚙", label: "Settings" }] },
   ];
-
+  if (!session) {
+    return <Auth onLogin={setSession} />;
+  }
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -147,10 +193,21 @@ async function addPost() {
         </div>
 
         <div className="sidebar-profile">
-          <div className="avatar avatar-small">KD</div>
-          <div><strong>Karishma Dawra</strong><span>Community member</span></div>
-          <span className="more-icon">···</span>
-        </div>
+        <div className="avatar avatar-small">
+          {session.user.name.slice(0, 2).toUpperCase()}
+           </div>
+        <div>
+        <strong>{session.user.name}</strong>
+        <span>Community member</span>
+      </div>
+  <button
+    className="more-icon"
+    onClick={() => setSession(null)}
+    title="Log out"
+  >
+    Log out
+  </button>
+</div>
       </aside>
 
       <main className="main-area">
@@ -242,7 +299,10 @@ async function addPost() {
                       <button className="more-button" aria-label="More options">···</button>
                     </div>
                     <p className="post-text">{post.text || post.content}</p>
-                    <div className="post-meta"><span>{post.likes + (liked.includes(post.id) ? 1 : 0)} likes</span><span>{post.comments} comments</span></div>
+                    <div className="post-meta">
+  <span>{post.likes} likes</span>
+  <span>{post.comments} comments</span>
+</div>
                     <div className="post-actions">
                       <button className={liked.includes(post.id) ? "liked" : ""} onClick={() => toggleLike(post.id)}>{liked.includes(post.id) ? "♥ Liked" : "♡ Like"}</button>
                       <button onClick={() => alert("Comment feature will be connected in the next development phase.")}>○ Comment</button>
